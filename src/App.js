@@ -1,40 +1,57 @@
 import React, { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@mui/material";
 import Papa from "papaparse";
 
-const GOOGLE_PLACES_API_KEY = "AIzaSyB-HtS4Y3Yk7wgPZ7zOVkP_5dBvxz1wzQ4"; // Replace with your API Key
+const BACKEND_URL = "https://scraper-backend-three.vercel.app"; // Replace with your actual deployed backend URL
 
 const CpaScraperApp = () => {
   const [location, setLocation] = useState("");
+  const [businessType, setBusinessType] = useState("");
+  const [radius, setRadius] = useState(5000); // Default radius in meters
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchCPAData = async () => {
-    if (!location) return alert("Please enter a location");
+  const fetchBusinessData = async () => {
+    if (!location || !businessType) return alert("Please enter a location, business type, and radius");
     setLoading(true);
     
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/place/textsearch/json?query=CPA+firms+in+${encodeURIComponent(
-        location
-      )}&key=${GOOGLE_PLACES_API_KEY}`
-    );
+    try {
+      // Call backend API instead of Google Maps API
+      const response = await fetch(`${BACKEND_URL}/api/places?keyword=${encodeURIComponent(
+        businessType
+      )}&location=${encodeURIComponent(location)}&radius=${radius}&type=${businessType}`);
+      
+      const data = await response.json();
+      if (!data.results || data.results.length === 0) {
+        setLoading(false);
+        alert("No results found.");
+        return;
+      }
 
-    const data = await response.json();
-    setLoading(false);
-    
-    if (data.status !== "OK") {
-      alert("No results found or API error.");
-      return;
+      const places = data.results;
+
+      // Fetch details for each place
+      const detailedResults = await Promise.all(
+        places.map(async (place) => {
+          const detailsResponse = await fetch(`${BACKEND_URL}/api/place/details?place_id=${place.place_id}`);
+          const detailsData = await detailsResponse.json();
+
+          return {
+            name: detailsData.result?.name || place.name,
+            location: detailsData.result?.vicinity || place.vicinity || "N/A",
+            phone: detailsData.result?.formatted_phone_number || "N/A",
+            contact: "N/A", // Google Places API doesn't return contacts
+          };
+        })
+      );
+
+      setResults(detailedResults);
+    } catch (error) {
+      alert("Error fetching business data.");
+      console.error(error);
     }
-    
-    const formattedResults = data.results.map((place) => ({
-      name: place.name,
-      location: place.formatted_address,
-      phone: place.formatted_phone_number || "N/A",
-      contact: "N/A" // Google Places API doesn't always provide contact names
-    }));
-    
-    setResults(formattedResults);
+
+    setLoading(false);
   };
 
   const downloadCSV = () => {
@@ -43,7 +60,7 @@ const CpaScraperApp = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "cpa_firms.csv";
+    a.download = "businesses.csv";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -51,16 +68,30 @@ const CpaScraperApp = () => {
 
   return (
     <div className="p-6 max-w-lg mx-auto text-center">
-      <h1 className="text-2xl font-bold mb-4">CPA Firm Finder</h1>
+      <h1 className="text-2xl font-bold mb-4">Business Finder</h1>
       <input
         type="text"
-        placeholder="Enter city, state (e.g., Los Angeles, CA)"
+        placeholder="Enter business type (e.g., CPA, restaurant)"
+        className="border p-2 rounded w-full mb-4"
+        value={businessType}
+        onChange={(e) => setBusinessType(e.target.value)}
+      />
+      <input
+        type="text"
+        placeholder="Enter latitude,longitude (e.g., 34.0522,-118.2437)"
         className="border p-2 rounded w-full mb-4"
         value={location}
         onChange={(e) => setLocation(e.target.value)}
       />
-      <Button onClick={fetchCPAData} disabled={loading}>
-        {loading ? "Searching..." : "Find CPA Firms"}
+      <input
+        type="number"
+        placeholder="Enter search radius (meters)"
+        className="border p-2 rounded w-full mb-4"
+        value={radius}
+        onChange={(e) => setRadius(e.target.value)}
+      />
+      <Button onClick={fetchBusinessData} disabled={loading}>
+        {loading ? "Searching..." : "Find Businesses"}
       </Button>
       {results.length > 0 && (
         <div className="mt-6">
